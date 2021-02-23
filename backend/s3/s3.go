@@ -1323,6 +1323,7 @@ type Options struct {
 	MemoryPoolFlushTime   fs.Duration          `config:"memory_pool_flush_time"`
 	MemoryPoolUseMmap     bool                 `config:"memory_pool_use_mmap"`
 	DisableHTTP2          bool                 `config:"disable_http2"`
+	RoleArn               string               `config:"role_arn"`
 }
 
 // Fs represents a remote s3 server
@@ -1463,11 +1464,27 @@ func getClient(ctx context.Context, opt *Options) *http.Client {
 
 // s3Connection makes a connection to s3
 func s3Connection(ctx context.Context, opt *Options) (*s3.S3, *session.Session, error) {
+
+	var v credentials.Value
+
 	// Make the auth
-	v := credentials.Value{
-		AccessKeyID:     opt.AccessKeyID,
-		SecretAccessKey: opt.SecretAccessKey,
-		SessionToken:    opt.SessionToken,
+	if opt.RoleArn != "" {
+		creds := stscreds.NewCredentials(session.New(), opt.RoleArn, func(arp *stscreds.AssumeRoleProvider) { arp.Duration = 12 * time.Hour })
+		cred, err := creds.Get()
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "Sts NewCredentials")
+		}
+		v = credentials.Value{
+			AccessKeyID:     cred.AccessKeyID,
+			SecretAccessKey: cred.SecretAccessKey,
+			SessionToken:    cred.SessionToken,
+		}
+	} else {
+		v = credentials.Value{
+			AccessKeyID:     opt.AccessKeyID,
+			SecretAccessKey: opt.SecretAccessKey,
+			SessionToken:    opt.SessionToken,
+		}
 	}
 
 	lowTimeoutClient := &http.Client{Timeout: 1 * time.Second} // low timeout to ec2 metadata service
